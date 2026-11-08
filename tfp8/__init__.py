@@ -4,6 +4,8 @@ FP8 weights are stored as uint8 codes + f32 scales, decoded to FP16 inside the t
 FP16 tensor cores with FP32 accumulation. It saves memory and bandwidth; it does not fake
 native FP8 throughput.
 """
+__version__ = "0.1.0"
+
 from .config import FP8Config
 from .formats import E4M3FN, E5M2, decode, encode, lut
 from .linear import FP8Linear
