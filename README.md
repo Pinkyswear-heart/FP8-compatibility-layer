@@ -6,6 +6,9 @@ FP8 权重以 `uint8` 编码 + FP32 scale 的形式常驻显存，在 kernel 的
 
 > 这个项目省的是**显存和带宽**，不是算力。Turing 没有 FP8 张量核，它不会让你得到“原生 FP8 速度”。具体数字见下方[实测结果](#实测结果rtx-2080-ti)。
 
+> [!IMPORTANT]
+> **本项目只针对 NVIDIA GeForce RTX 2080 Ti。** 所有 kernel 的参数、性能数据和正确性验证都只在这张卡上做过。在其他显卡上能否运行、结果是否正确、性能如何，目前都**尚不明确**，请勿直接套用。
+
 ## 特性
 
 - **两种 FP8 格式**：E4M3FN、E5M2。256 个编码全部与 `torch.float8_*` 逐位一致，包括 ±0、次正规数、NaN、inf。
@@ -21,7 +24,7 @@ FP8 权重以 `uint8` 编码 + FP32 scale 的形式常驻显存，在 kernel 的
 
 ## 环境要求
 
-- NVIDIA GPU，在 RTX 2080 Ti / sm_75 上开发和测试（理论上其他 sm_70+ 显卡也能运行，但未验证）
+- **NVIDIA GeForce RTX 2080 Ti（Turing，sm_75）**：这是目前唯一支持的显卡。其他型号（包括其他 Turing 卡）的兼容性尚不明确
 - Python 3.10+、PyTorch（CUDA 版，需要带 `torch.float8_*` dtype 和 NVRTC）
 - 只编译 C++ 宿主测试程序时才需要 MSVC（`cl`）
 
@@ -122,7 +125,7 @@ python -I demos/tiny_dlss.py --steps 800                           # 自建时�
 - 融合 GEMM 是教学级 tile 实现（约 19–21 TFLOPS），远低于 cuBLAS FP16（约 76 TFLOPS）。M 大时默认走 chunked 路径。
 - 在 Windows/WDDM 上，经 ctypes 启动一次 kernel 就要约 28 µs，小层的 decode 只能达到 FP16 的约 0.7×。
 - `FP8Linear.from_fp8_checkpoint` 只校验 dtype 和 scale 形状，还没有对接任何社区 checkpoint 的真实 metadata 布局。
-- 目前只在单张共享使用的 RTX 2080 Ti 上测过，绝对耗时会受外部负载和时钟状态影响，比值更有参考价值。
+- **只在单张共享使用的 RTX 2080 Ti 上测过，其他显卡尚不明确。** 即使在 2080 Ti 上，绝对耗时会受外部负载和时钟状态影响，比值更有参考价值。
 
 ## 许可证
 
