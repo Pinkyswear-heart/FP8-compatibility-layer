@@ -1,5 +1,7 @@
 # TFP8 — Turing FP8 兼容运行时（W8A16 demo）
 
+> **注意：只针对 NVIDIA GeForce RTX 2080 Ti，其他型号尚不明确。**
+
 按 `tfp8-llm-image-solution.md` 实现的 W8A16 演示：FP8 权重常驻显存（uint8 + f32 scale），
 在 tile 内解码成 FP16 后走 Tensor Core / FP32 FMA，**不生成完整 FP16 权重**。
 

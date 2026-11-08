@@ -1,5 +1,7 @@
 # FP8 转译算力实测报告 — RTX 2080 Ti (Turing, sm_75)
 
+> **注意：只针对 NVIDIA GeForce RTX 2080 Ti，其他型号尚不明确。**
+
 > 对象：`tfp8`（Turing 上以 W8A16 模拟 FP8 的推理库）
 > 机器：RTX 2080 Ti / Xeon E5-2666 v3 / Windows 10 / torch 2.14.1+cu132
 > 数据：`.verify/bench/gpu/transcode_gpu_run1.json`、`run2.json`（11-07 两次全量）、`run3.json`~`run8.json`（11-08 复测 6 轮；run7/run8 为解锁状态复核轮）、`run9.json`/`run10.json`（11-08 14:2x 代码修复后复测）、`diag_dequant.json`（根因探针）

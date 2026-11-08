@@ -1,5 +1,7 @@
 # FP8 LUT 解码 + 融合反量化 GEMM demo
 
+> **注意：只针对 NVIDIA GeForce RTX 2080 Ti，其他型号尚不明确。**
+
 在 RTX 2080 Ti (sm_75，无原生 FP8) 上用 FP16 tensor core 模拟 FP8 GEMM。
 
 ```

@@ -1,5 +1,7 @@
 # tests/ — 测试、基准与验证（与核心代码分离）
 
+> **注意：只针对 NVIDIA GeForce RTX 2080 Ti，其他型号尚不明确。**
+
 本目录集中存放原来散落在仓库根目录、`tfp8/tests/`、`train/` 里的测试、基准、构建与独立校验代码。
 核心实现仍在原处：C++ 核心 `fp8.h` / `fp8_gemm_kernel.cu` 在仓库根目录，Python 运行库在 `tfp8/`
 （含 `examples/`），训练模拟在 `train/`，演示在 `demos/`。核心代码不依赖本目录。
