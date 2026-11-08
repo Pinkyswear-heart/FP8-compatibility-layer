@@ -123,6 +123,21 @@ Turing 的 Tensor Core 只认 FP16，不认 FP8。所以无论怎么优化，最
 
 带宽本来是有机会换成速度的——读一半的字节理应快一倍。但实测下来，解码消耗的 ALU 吃掉了带宽省下来的大部分收益，结果是和 FP16 基本打平（0.68–1.04×）。所以这个项目的定位很明确：**让放不下的模型能放下**，而不是让已经放得下的模型跑得更快。
 
+### 参考资料
+
+| 对应小节 | 资料 | 说明 |
+|---|---|---|
+| 1. 格式 | [FP8 Formats for Deep Learning](https://arxiv.org/abs/2209.05433)（Micikevicius 等，2022） | E4M3 / E5M2 两种格式的定义，以及“前向用 E4M3、梯度用 E5M2”的依据 |
+| 1. 格式 | [PyTorch 文档：`torch.float8_e4m3fn` / `float8_e5m2`](https://docs.pytorch.org/docs/stable/tensor_attributes.html) | 本项目逐位对照的参考实现 |
+| 3. 缩放 | [Microscaling Data Formats for Deep Learning](https://arxiv.org/abs/2310.10537)（Rouhani 等，2023） | 按 32 个元素一组、UE8M0（2 的幂）scale 的 block 缩放，对应本项目的 block32 / K-group 模式 |
+| 3. 缩放 | [FP8 versus INT8 for efficient deep learning inference](https://arxiv.org/abs/2303.17951)（van Baalen 等，2023） | FP8 与 INT8 推理精度的对比 |
+| 2、4. 融合解码 | [MARLIN](https://arxiv.org/abs/2408.11743)（Frantar 等，2024） | 同类思路：低比特权重常驻显存，在 kernel 内解码后喂 Tensor Core，用于 LLM 推理 |
+| 2、4. kernel 实现 | [CUDA C++ Programming Guide：Warp Matrix Functions (WMMA)](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#wmma) | 融合 GEMM 使用的 Tensor Core 接口 |
+| 2、4. kernel 实现 | [NVRTC 文档](https://docs.nvidia.com/cuda/nvrtc/index.html) | 运行时编译 kernel、不依赖 nvcc 的方式 |
+| 5. 硬件 | [NVIDIA Transformer Engine](https://github.com/NVIDIA/TransformerEngine) | 在原生支持 FP8 的硬件（Hopper 及以后）上的 FP8 实现，可作为本项目所模拟对象的对照 |
+
+这些资料说明的是思路的来源，不代表本项目复现了其中任何一个实现。
+
 ## 项目结构
 
 | 路径 | 内容 |
