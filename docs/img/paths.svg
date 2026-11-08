@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 400" width="820" height="400" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+  <rect width="820" height="400" rx="10" fill="#ffffff"/>
+  <style>
+    .t  { fill:#0f172a; font-size:13px }
+    .hd { fill:#0f172a; font-size:15px; font-weight:600 }
+    .lb { fill:#475569; font-size:12px }
+    .sm { fill:#64748b; font-size:11px }
+    .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace }
+  </style>
+  <defs>
+    <marker id="b" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <text x="28" y="34" class="hd">按 M（一次算多少行）自动选路</text>
+  <text x="28" y="56" class="sm">M 是输入的行数：LLM 逐 token 解码时 M=1，prefill 和图像生成时 M 可以是几千。三条路径的瓶颈完全不同。</text>
+
+  <rect x="320" y="78" width="180" height="40" rx="6" fill="#e0e7ff" stroke="#6366f1"/>
+  <text x="410" y="103" class="t mono" text-anchor="middle">FP8Linear.forward(x)</text>
+
+  <line x1="410" y1="118" x2="410" y2="142" stroke="#64748b"/>
+  <line x1="150" y1="142" x2="670" y2="142" stroke="#64748b"/>
+  <line x1="150" y1="142" x2="150" y2="166" stroke="#64748b" marker-end="url(#b)"/>
+  <line x1="410" y1="142" x2="410" y2="166" stroke="#64748b" marker-end="url(#b)"/>
+  <line x1="670" y1="142" x2="670" y2="166" stroke="#64748b" marker-end="url(#b)"/>
+
+  <!-- gemv -->
+  <rect x="40" y="172" width="220" height="150" rx="8" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="150" y="196" class="t mono" text-anchor="middle">M ≤ 8</text>
+  <text x="150" y="218" class="lb" text-anchor="middle">融合 GEMV</text>
+  <text x="56" y="244" class="sm">一个 warp 负责一个输出通道</text>
+  <text x="56" y="262" class="sm">每 warp 同时发 4 个 128 位加载</text>
+  <text x="56" y="280" class="sm">激活按原 dtype 读，FP32 累加</text>
+  <text x="56" y="304" class="sm">瓶颈：显存带宽 + 启动开销</text>
+
+  <!-- fused gemm -->
+  <rect x="300" y="172" width="220" height="150" rx="8" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="410" y="196" class="t mono" text-anchor="middle">8 &lt; M &lt; 256</text>
+  <text x="410" y="218" class="lb" text-anchor="middle">融合 WMMA GEMM</text>
+  <text x="316" y="244" class="sm">64×64×32 块，4 个 warp</text>
+  <text x="316" y="262" class="sm">权重 tile 解码进共享内存</text>
+  <text x="316" y="280" class="sm">寄存器预取双缓冲（无 cp.async）</text>
+  <text x="316" y="304" class="sm">瓶颈：解码与 Tensor Core 抢发射</text>
+
+  <!-- chunked -->
+  <rect x="560" y="172" width="220" height="150" rx="8" fill="#fefce8" stroke="#fde047"/>
+  <text x="670" y="196" class="t mono" text-anchor="middle">M ≥ 256</text>
+  <text x="670" y="218" class="lb" text-anchor="middle">chunked</text>
+  <text x="576" y="244" class="sm">分块反量化到 32 MB 固定缓冲</text>
+  <text x="576" y="262" class="sm">再交给 cuBLAS 做 GEMM</text>
+  <text x="576" y="280" class="sm">缩放和 bias 在融合 epilogue 里</text>
+  <text x="576" y="304" class="sm">瓶颈：算力，此时反量化只占 8%</text>
+
+  <rect x="28" y="340" width="752" height="44" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="44" y="358" class="sm">M 大时重复解码的代价会摊薄，所以宁可把权重临时展开也要用上 cuBLAS；M 小时权重只读一遍，展开反而纯属浪费。</text>
+  <text x="44" y="376" class="sm">另外：前几次调用会检查输出是否出现 NaN/Inf，一旦出现就把这一层换回 FP16 Linear 并记录原因，不会静默算错。</text>
+</svg>
