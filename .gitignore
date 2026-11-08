@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Build artifacts (rebuild with tests/build_fp8_host.bat)
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.lib
+*.exp
+
+# Generated outputs
+dlss_out.png
+
+# Local scratch / tooling / backups
+.verify/
+.dsh-ops/
+.backup/
+.claude/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>FP8 训练模拟 vs FP32 基线</title>
+<style>
+.viz-root {
+  color-scheme: light;
+  --surface-0: #f5f4f1; --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77766f;
+  --grid: #e6e5e0; --axis: #c9c8c2;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --surface-0: #111110; --surface-1: #1a1a19;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #94938b;
+    --grid: #2c2c2a; --axis: #45443f;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181;
+  }
+}
+body { margin: 0; }
+.viz-root { background: var(--surface-0); color: var(--text-primary);
+  font: 14px/1.45 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif; padding: 24px; min-height: 100vh; box-sizing: border-box; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.sub { color: var(--text-secondary); margin: 0 0 20px; max-width: 900px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile, .card { background: var(--surface-1); border-radius: 10px; padding: 14px 16px; }
+.tile .k { color: var(--text-secondary); font-size: 12px; }
+.tile .v { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile .d { color: var(--text-muted); font-size: 12px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 12px; margin-bottom: 12px; }
+.card h2 { font-size: 14px; margin: 0 0 2px; }
+.card p { color: var(--text-secondary); font-size: 12px; margin: 0 0 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 16px; color: var(--text-secondary); font-size: 13px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 16px; height: 2px; border-radius: 1px; display: inline-block; }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { fill: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+svg .lbl { fill: var(--text-secondary); font-size: 11px; }
+.tip { position: fixed; pointer-events: none; background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--axis); border-radius: 8px; padding: 8px 10px; font-size: 12px; display: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12); z-index: 10; min-width: 200px; }
+.tip .row { display: flex; align-items: center; gap: 8px; }
+.tip .row b { font-variant-numeric: tabular-nums; min-width: 56px; }
+.tip .row i { width: 12px; height: 2px; display: inline-block; }
+.tip .row span { color: var(--text-secondary); }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--text-secondary); font-weight: 500; font-size: 12px; }
+td .key { display: inline-block; width: 12px; height: 2px; margin-right: 8px; vertical-align: middle; }
+.notes { color: var(--text-secondary); font-size: 13px; max-width: 900px; }
+.notes li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <h1>FP8 训练模拟 vs FP32 基线（模拟前）</h1>
+  <p class="sub" id="sub"></p>
+  <div class="tiles" id="tiles"></div>
+  <div class="legend" id="legend"></div>
+  <div class="grid2">
+    <div class="card"><h2>验证集 loss</h2><p>对数纵轴；同一初始化、同一数据顺序</p><div id="c_val"></div></div>
+    <div class="card"><h2>验证集逐序列准确率</h2><p>16 位数字全部排对才算正确</p><div id="c_seq"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="card"><h2>与 FP32 基线的 val loss 差</h2><p>recipe − baseline；0 线以上表示更差。无缩放 recipe 差距约 +1.49，不在此图中（见表格）</p><div id="c_gap"></div></div>
+    <div class="card"><h2>反向梯度被量化为 0 的比例</h2><p>dY 中非零元素经 FP8 量化后变为 0 的占比（下溢）</p><div id="c_flush"></div></div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <h2>最终结果</h2><p>ms/step 是 PyTorch 模拟开销（量化+LUT 查表），不代表真实 FP8 硬件速度</p>
+    <table id="tbl"></table>
+  </div>
+  <div class="card notes" id="notes"></div>
+  <div class="tip" id="tip"></div>
+</div>
+<script>
+const D = __DATA__;
+const SLOTS = ["--s1", "--s2", "--s3", "--s4", "--s5"];
+const css = v => getComputedStyle(document.querySelector(".viz-root")).getPropertyValue(v).trim();
+const runs = D.runs.map((r, i) => ({ ...r, slot: SLOTS[i] }));
+const base = runs[0];
+const fmtPct = v => (v * 100).toFixed(2) + "%";
+const el = (tag, attrs = {}, parent) => {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+};
+const h = (tag, text, parent, cls) => {
+  const e = document.createElement(tag);
+  if (text != null) e.textContent = text;
+  if (cls) e.className = cls;
+  if (parent) parent.appendChild(e);
+  return e;
+};
+
+document.getElementById("sub").textContent =
+  `任务：16 位数字排序（4 层 Transformer，d=128，${D.steps} 步，batch 64，AdamW）。` +
+  `FP8 recipe 量化每个 Linear 的三次 GEMM（前向 Y、反向 dX、dW）的输入，FP32 累加；` +
+  `LayerNorm / Softmax / 残差 / 注意力矩阵乘 / 主权重与优化器状态保持 FP32。GPU: ${D.gpu}`;
+
+// tiles
+const tiles = document.getElementById("tiles");
+const last = a => a[a.length - 1];
+runs.forEach(r => {
+  const t = h("div", null, tiles, "tile");
+  h("div", r.name, t, "k");
+  h("div", fmtPct(last(r.val_seq_acc)), t, "v");
+  const dl = last(r.val_loss) - last(base.val_loss);
+  h("div", r === base ? `val loss ${last(r.val_loss).toFixed(4)}`
+                      : `val loss ${last(r.val_loss).toFixed(4)}（${dl >= 0 ? "+" : ""}${dl.toFixed(4)}）`, t, "d");
+});
+
+// legend (line keys)
+const lg = document.getElementById("legend");
+runs.forEach(r => {
+  const s = h("span", null, lg);
+  const i = h("i", null, s); i.style.background = `var(${r.slot})`;
+  s.appendChild(document.createTextNode(r.name));
+});
+
+const tip = document.getElementById("tip");
+function lineChart(id, series, { log = false, fmt = v => v.toFixed(3), zero = false, label = true } = {}) {
+  const W = 560, H = 240, m = { l: 52, r: label ? 150 : 16, t: 10, b: 26 };
+  const host = document.getElementById(id);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" }, host);
+  const xs = series[0].x;
+  const all = series.flatMap(s => s.y).filter(v => (log ? v > 0 : isFinite(v)));
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+  const tf = v => (log ? Math.log10(Math.max(v, 1e-12)) : v);
+  let a = tf(lo), b = tf(hi); const pad = (b - a) * 0.06 || 1; a -= log ? 0 : pad; b += pad;
+  const X = v => m.l + (v - xs[0]) / (last(xs) - xs[0]) * (W - m.l - m.r);
+  const Y = v => m.t + (1 - (tf(v) - a) / (b - a)) * (H - m.t - m.b);
+  // grid + y ticks
+  const ticks = [];
+  if (log) { for (let e = Math.floor(a); e <= Math.ceil(b); e++) for (const k of [1, 2, 5]) { const v = k * 10 ** e; if (tf(v) >= a && tf(v) <= b) ticks.push(v); } }
+  else { const step = niceStep((b - a) / 4); for (let v = Math.ceil(a / step) * step; v <= b + 1e-12; v += step) ticks.push(+v.toFixed(10)); }
+  ticks.forEach(v => {
+    el("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: css(zero && v === 0 ? "--axis" : "--grid"), "stroke-width": 1 }, svg);
+    el("text", { x: m.l - 6, y: Y(v) + 4, "text-anchor": "end" }, svg).textContent = fmt(v);
+  });
+  [xs[0], ...[0.25, 0.5, 0.75].map(f => Math.round(xs[0] + f * (last(xs) - xs[0]))), last(xs)].forEach(v =>
+    (el("text", { x: X(v), y: H - 8, "text-anchor": "middle" }, svg).textContent = v));
+  // lines
+  series.forEach(s => {
+    const d = s.x.map((x, i) => `${i ? "L" : "M"}${X(x).toFixed(1)},${Y(s.y[i]).toFixed(1)}`).join("");
+    el("path", { d, fill: "none", stroke: `var(${s.slot})`, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+  });
+  // selective direct labels at line ends, de-collided
+  if (label) {
+    const ends = series.map(s => ({ s, y: Y(last(s.y)) })).sort((p, q) => p.y - q.y);
+    for (let i = 1; i < ends.length; i++) ends[i].y = Math.max(ends[i].y, ends[i - 1].y + 13);
+    ends.forEach(e => {
+      el("text", { x: W - m.r + 8, y: e.y + 4, class: "lbl" }, svg).textContent = `${short(e.s.name)} ${fmt(last(e.s.y))}`;
+    });
+  }
+  // crosshair + tooltip
+  const cross = el("line", { y1: m.t, y2: H - m.b, stroke: css("--axis"), "stroke-width": 1, visibility: "hidden" }, svg);
+  const dots = series.map(s => el("circle", { r: 4, fill: `var(${s.slot})`, stroke: css("--surface-1"), "stroke-width": 2, visibility: "hidden" }, svg));
+  const hit = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent", tabindex: 0 }, svg);
+  let idx = xs.length - 1;
+  const show = (cx, cy) => {
+    const xv = xs[idx];
+    cross.setAttribute("x1", X(xv)); cross.setAttribute("x2", X(xv)); cross.setAttribute("visibility", "visible");
+    series.forEach((s, i) => { dots[i].setAttribute("cx", X(xv)); dots[i].setAttribute("cy", Y(s.y[idx])); dots[i].setAttribute("visibility", "visible"); });
+    tip.replaceChildren();
+    h("div", `step ${xv}`, tip).style.marginBottom = "4px";
+    series.map((s, i) => ({ s, v: s.y[idx] })).forEach(({ s, v }) => {
+      const row = h("div", null, tip, "row");
+      const k = h("i", null, row); k.style.background = `var(${s.slot})`;
+      h("b", fmt(v), row); h("span", s.name, row);
+    });
+    tip.style.display = "block";
+    const tw = tip.offsetWidth;
+    tip.style.left = Math.min(cx + 14, innerWidth - tw - 8) + "px"; tip.style.top = cy + 14 + "px";
+  };
+  const hide = () => { tip.style.display = "none"; cross.setAttribute("visibility", "hidden"); dots.forEach(d => d.setAttribute("visibility", "hidden")); };
+  hit.addEventListener("pointermove", ev => {
+    const p = svg.getBoundingClientRect(), sx = (ev.clientX - p.left) * W / p.width;
+    let best = 0; xs.forEach((x, i) => { if (Math.abs(X(x) - sx) < Math.abs(X(xs[best]) - sx)) best = i; });
+    idx = best; show(ev.clientX, ev.clientY);
+  });
+  hit.addEventListener("pointerleave", hide);
+  hit.addEventListener("focus", () => { const p = svg.getBoundingClientRect(); show(p.right - 200, p.top); });
+  hit.addEventListener("blur", hide);
+  hit.addEventListener("keydown", ev => {
+    if (ev.key === "ArrowLeft") idx = Math.max(0, idx - 1); else if (ev.key === "ArrowRight") idx = Math.min(xs.length - 1, idx + 1); else return;
+    ev.preventDefault(); const p = svg.getBoundingClientRect(); show(p.right - 200, p.top);
+  });
+}
+function niceStep(raw) { const p = 10 ** Math.floor(Math.log10(raw)); const f = raw / p; return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p; }
+function short(n) { return n.replace("FP32 baseline (模拟前)", "FP32").replace("FP8 ", "").replace(" E4M3/E5M2", "").replace("E4M3/E4M3", "全E4M3"); }
+
+const S = (key, list = runs) => list.map(r => ({ name: r.name, slot: r.slot, x: r.step, y: r[key] }));
+lineChart("c_val", S("val_loss"), { log: true, fmt: v => (v >= 0.1 ? v.toFixed(2) : v.toPrecision(2)) });
+lineChart("c_seq", S("val_seq_acc"), { fmt: v => (v * 100).toFixed(0) + "%" });
+lineChart("c_gap", runs.slice(1).filter(r => !(r.config && r.config.granularity === "none")).map(r => ({ name: r.name, slot: r.slot, x: r.step, y: r.val_loss.map((v, i) => v - base.val_loss[i]) })),
+  { zero: true, fmt: v => (Math.abs(v) < 1e-9 ? "0" : v.toFixed(3)) });
+lineChart("c_flush", S("flush", runs.slice(1)), { fmt: v => (v * 100).toFixed(v < 0.01 ? 2 : 0) + "%" });
+
+// table view
+const tbl = document.getElementById("tbl");
+const hr = h("tr", null, h("thead", null, tbl));
+["recipe", "前向/反向格式", "缩放", "val loss", "Δ vs FP32", "token acc", "序列 acc", "梯度下溢", "权重偏移", "ms/step"].forEach(t => h("th", t, hr));
+const tb = h("tbody", null, tbl);
+runs.forEach(r => {
+  const tr = h("tr", null, tb);
+  const c0 = h("td", null, tr); const k = h("span", null, c0, "key"); k.style.background = `var(${r.slot})`; c0.appendChild(document.createTextNode(r.name));
+  const c = r.config;
+  h("td", c ? `${c.fwd.toUpperCase()} / ${c.bwd.toUpperCase()}` : "FP32", tr);
+  h("td", c ? ({ tensor: "per-tensor FP32", block: `block32 ${c.ue8m0 ? "UE8M0" : "FP32"}`, none: "无（scale=1）" })[c.granularity] : "—", tr);
+  h("td", last(r.val_loss).toFixed(4), tr);
+  const dl = last(r.val_loss) - last(base.val_loss);
+  h("td", r === base ? "—" : (dl >= 0 ? "+" : "") + dl.toFixed(4), tr);
+  h("td", fmtPct(last(r.val_tok_acc)), tr);
+  h("td", fmtPct(last(r.val_seq_acc)), tr);
+  h("td", r === base ? "—" : fmtPct(r.flush.reduce((a, b) => a + b, 0) / r.flush.length), tr);
+  h("td", r === base ? "—" : r.drift.toFixed(3), tr);
+  h("td", (r.sec_per_step * 1e3).toFixed(1), tr);
+});
+
+// notes
+const notes = document.getElementById("notes");
+h("h2", "读法", notes);
+const ul = h("ul", null, notes);
+[
+  "权重偏移 = ‖W_recipe − W_FP32‖ / ‖W_FP32‖（训练结束时），同一初始化与数据顺序下衡量 FP8 噪声让轨迹偏离多少。",
+  "梯度下溢：反向 dY 量化后变为 0 的非零元素占比。无缩放时 E5M2 最小次正规数 1.5e-5，梯度大多比它小，被直接清零。",
+  "反向全 E4M3 的动态范围（2^-9 ~ 448）比 E5M2（2^-16 ~ 57344）窄；配合 per-tensor 缩放时，下溢比例比 E5M2 高，但小模型上仍能收敛。",
+  "这是数值模拟：没有节省显存或时间，速度列只反映模拟开销。",
+].forEach(t => h("li", t, ul));
+</script>
+</body>
+</html>

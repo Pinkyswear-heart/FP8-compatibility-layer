@@ -1,0 +1,40 @@
+C:\Users\17023\AppData\Local\Programs\Python\Python313\Lib\site-packages\torch\cuda\__init__.py:68: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+GPU: NVIDIA GeForce RTX 2080 Ti  steps: 3000
+  [FP32 baseline (模拟前)] step   500  train 0.0708  val 0.0648  tok_acc 0.9757  seq_acc 0.6489  grad_flush 0.00%
+  [FP32 baseline (模拟前)] step  1000  train 0.0235  val 0.0127  tok_acc 0.9956  seq_acc 0.9321  grad_flush 0.00%
+  [FP32 baseline (模拟前)] step  1500  train 0.0010  val 0.0013  tok_acc 0.9997  seq_acc 0.9951  grad_flush 0.00%
+  [FP32 baseline (模拟前)] step  2000  train 0.0008  val 0.0006  tok_acc 0.9999  seq_acc 0.9980  grad_flush 0.00%
+  [FP32 baseline (模拟前)] step  2500  train 0.0004  val 0.0005  tok_acc 0.9999  seq_acc 0.9985  grad_flush 0.00%
+  [FP32 baseline (模拟前)] step  3000  train 0.0004  val 0.0004  tok_acc 0.9999  seq_acc 0.9980  grad_flush 0.00%
+  [FP8 per-tensor E4M3/E5M2] step   500  train 0.0890  val 0.0735  tok_acc 0.9789  seq_acc 0.7041  grad_flush 0.15%
+  [FP8 per-tensor E4M3/E5M2] step  1000  train 0.0235  val 0.0080  tok_acc 0.9978  seq_acc 0.9673  grad_flush 0.21%
+  [FP8 per-tensor E4M3/E5M2] step  1500  train 0.0032  val 0.0021  tok_acc 0.9997  seq_acc 0.9946  grad_flush 0.27%
+  [FP8 per-tensor E4M3/E5M2] step  2000  train 0.0008  val 0.0009  tok_acc 0.9999  seq_acc 0.9985  grad_flush 0.21%
+  [FP8 per-tensor E4M3/E5M2] step  2500  train 0.0003  val 0.0006  tok_acc 0.9999  seq_acc 0.9985  grad_flush 0.19%
+  [FP8 per-tensor E4M3/E5M2] step  3000  train 0.0005  val 0.0005  tok_acc 0.9999  seq_acc 0.9985  grad_flush 0.19%
+  [FP8 block32 UE8M0 E4M3/E5M2] step   500  train 0.0536  val 0.0382  tok_acc 0.9870  seq_acc 0.8047  grad_flush 0.00%
+  [FP8 block32 UE8M0 E4M3/E5M2] step  1000  train 0.0149  val 0.0066  tok_acc 0.9983  seq_acc 0.9746  grad_flush 0.00%
+  [FP8 block32 UE8M0 E4M3/E5M2] step  1500  train 0.0014  val 0.0018  tok_acc 0.9998  seq_acc 0.9971  grad_flush 0.00%
+  [FP8 block32 UE8M0 E4M3/E5M2] step  2000  train 0.0013  val 0.0011  tok_acc 0.9998  seq_acc 0.9976  grad_flush 0.00%
+  [FP8 block32 UE8M0 E4M3/E5M2] step  2500  train 0.0008  val 0.0009  tok_acc 0.9999  seq_acc 0.9980  grad_flush 0.00%
+  [FP8 block32 UE8M0 E4M3/E5M2] step  3000  train 0.0006  val 0.0009  tok_acc 0.9998  seq_acc 0.9976  grad_flush 0.00%
+  [FP8 per-tensor E4M3/E4M3] step   500  train 0.1012  val 0.1014  tok_acc 0.9620  seq_acc 0.4893  grad_flush 4.52%
+  [FP8 per-tensor E4M3/E4M3] step  1000  train 0.0219  val 0.0054  tok_acc 0.9991  seq_acc 0.9858  grad_flush 18.79%
+  [FP8 per-tensor E4M3/E4M3] step  1500  train 0.0020  val 0.0018  tok_acc 0.9997  seq_acc 0.9961  grad_flush 21.15%
+  [FP8 per-tensor E4M3/E4M3] step  2000  train 0.0015  val 0.0011  tok_acc 0.9998  seq_acc 0.9976  grad_flush 20.24%
+  [FP8 per-tensor E4M3/E4M3] step  2500  train 0.0006  val 0.0008  tok_acc 0.9998  seq_acc 0.9980  grad_flush 8.88%
+  [FP8 per-tensor E4M3/E4M3] step  3000  train 0.0005  val 0.0007  tok_acc 0.9999  seq_acc 0.9985  grad_flush 11.53%
+  [FP8 no scaling E4M3/E5M2] step   500  train 1.9150  val 1.9025  tok_acc 0.5287  seq_acc 0.0000  grad_flush 99.97%
+  [FP8 no scaling E4M3/E5M2] step  1000  train 1.6423  val 1.6376  tok_acc 0.5670  seq_acc 0.0000  grad_flush 99.99%
+  [FP8 no scaling E4M3/E5M2] step  1500  train 1.5905  val 1.5785  tok_acc 0.5373  seq_acc 0.0000  grad_flush 99.99%
+  [FP8 no scaling E4M3/E5M2] step  2000  train 1.5604  val 1.5638  tok_acc 0.5483  seq_acc 0.0000  grad_flush 99.98%
+  [FP8 no scaling E4M3/E5M2] step  2500  train 1.5179  val 1.5112  tok_acc 0.5516  seq_acc 0.0000  grad_flush 99.98%
+  [FP8 no scaling E4M3/E5M2] step  3000  train 1.4932  val 1.4922  tok_acc 0.5546  seq_acc 0.0000  grad_flush 99.97%
+
+recipe                              final val loss  tok acc  seq acc  grad flush  ms/step  drift
+FP32 baseline (模拟前)                         0.0004   0.9999   0.9980       0.00%     21.6  0.000
+FP8 per-tensor E4M3/E5M2                    0.0005   0.9999   0.9985       0.19%    116.8  0.118
+FP8 block32 UE8M0 E4M3/E5M2                 0.0009   0.9998   0.9976       0.00%    148.1  0.121
+FP8 per-tensor E4M3/E4M3                    0.0007   0.9999   0.9985      14.21%    110.7  0.127
+FP8 no scaling E4M3/E5M2                    1.4922   0.5546   0.0000      99.66%     67.2  1.320
