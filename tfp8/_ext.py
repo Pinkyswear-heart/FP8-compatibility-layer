@@ -10,7 +10,22 @@ import threading
 import torch
 
 _SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "csrc", "tfp8_kernels.cu")
-_NAMES = [f"tfp8_gemv_in_{i}_{o}" for i in ("f16", "bf16", "f32") for o in ("f16", "bf16", "f32")] + [
+
+# Row widths that get their own kernel instantiation (must match GEMV_MT in the .cu). The GEMV body
+# is unrolled over the tile height, so a wide instantiation issues the FMA and reduction blocks of
+# rows that this launch does not read; exporting one kernel per width lets a decode step at M=1 skip
+# them entirely. Measured at M=1: 1.17-1.24x, and M=2..4 lands at 1.03-1.17x on the width-4 kernel.
+GEMV_MT = (1, 4, 8)
+
+
+def gemv_name(x_tag: str, out_tag: str, M: int) -> str:
+    """Exported GEMV symbol for M rows: the narrowest width that covers it."""
+    mt = next((w for w in GEMV_MT if w >= M), GEMV_MT[-1])
+    return f"tfp8_gemv_in_{x_tag}_m{mt}_{out_tag}"
+
+
+_NAMES = [f"tfp8_gemv_in_{i}_m{m}_{o}"
+          for m in GEMV_MT for i in ("f16", "bf16", "f32") for o in ("f16", "bf16", "f32")] + [
     "tfp8_gemm_f16", "tfp8_gemm_bf16", "tfp8_gemm_f32", "tfp8_dequant_f16",
     "tfp8_epilogue_f16", "tfp8_epilogue_bf16", "tfp8_epilogue_f32",
     "tfp8_prep_bf16", "tfp8_prep_f32", "tfp8_prep_f16"]
@@ -153,19 +168,28 @@ class GemvLaunch:
     kind signature, no slot lookup, no per-argument data_ptr()/isinstance, no grid arithmetic.
     The static tensors are referenced here, so their storage cannot be freed under the launch;
     FP8Linear rebuilds the object if any of them is replaced (see FP8Linear._gemv_launch).
+
+    One object per (in dtype, out dtype) but one kernel per row width: the symbol is chosen from M
+    on each call, so a layer never has to be rebuilt when the batch size changes.
     """
-    __slots__ = ("fn", "dev", "device", "grid", "holders", "arr", "q", "ws", "bias", "lut",
+    __slots__ = ("fn_by_m", "dev", "device", "grid", "holders", "arr", "q", "ws", "bias", "lut",
                  "out_dtype", "N")
 
     def __init__(self, x_dtype, qweight, lut16, wscale, bias, out_dtype, group_size, fmt):
         drv = _DRV or _driver()
         self.dev = qweight.get_device()
         self.device = qweight.device
-        name = f"tfp8_gemv_in_{_TAG[x_dtype]}_{_TAG[out_dtype]}"
-        fn = _LAUNCH.get((self.dev, name))
-        if fn is None:
-            fn = _LAUNCH[(self.dev, name)] = _get(self.dev)[name].func
-        self.fn = fn
+        xt, ot = _TAG[x_dtype], _TAG[out_dtype]
+        fns = {}
+        for mt in GEMV_MT:
+            name = f"tfp8_gemv_in_{xt}_m{mt}_{ot}"
+            fn = _LAUNCH.get((self.dev, name))
+            if fn is None:
+                fn = _LAUNCH[(self.dev, name)] = _get(self.dev)[name].func
+            fns[mt] = fn
+        # Indexed by M so the call path is one list lookup: at M=1 this layer's own work is ~17 us
+        # and the surrounding Python is a large fraction of it.
+        self.fn_by_m = [fns[next(w for w in GEMV_MT if w >= m)] for m in range(GEMV_MAXM + 1)]
         N, K = qweight.shape
         self.N = N
         self.grid = (N + GEMV_WARPS * GEMV_ROWS - 1) // (GEMV_WARPS * GEMV_ROWS)
@@ -186,7 +210,7 @@ class GemvLaunch:
             h[0].value = x.data_ptr()
             h[6].value = y.data_ptr()
             h[7].value = M
-            rc = drv["launch"](self.fn, self.grid, 1, 1, 32 * GEMV_WARPS, 1, 1, 0,
+            rc = drv["launch"](self.fn_by_m[M], self.grid, 1, 1, 32 * GEMV_WARPS, 1, 1, 0,
                                drv["stream"](self.dev), self.arr, None)
         if rc != 0:
             raise RuntimeError(f"cuLaunchKernel(gemv) failed: {rc}")
@@ -221,7 +245,7 @@ def w8a16(x, qweight, lut16, wscale, bias, out_dtype, group_size, fmt="e4m3fn"):
         args = [x.contiguous(), qweight, lut16, wscale, wscale, b, y, M, N, K, group_size,
                 int(has_bias), fmt_id]
         grids = (N + GEMV_WARPS * GEMV_ROWS - 1) // (GEMV_WARPS * GEMV_ROWS)
-        _launch(f"tfp8_gemv_in_{_TAG[x.dtype]}_{_TAG[out_dtype]}", (grids, 1, 1),
+        _launch(gemv_name(_TAG[x.dtype], _TAG[out_dtype], M), (grids, 1, 1),
                 (32 * GEMV_WARPS, 1, 1), args, kinds=K_W8A16)
         return y
     x16, xs = prepare_activations(x)

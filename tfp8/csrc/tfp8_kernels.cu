@@ -120,6 +120,8 @@ __device__ __forceinline__ void dec4x4(uint4 raw, int fmt, const __half* lut, un
 // One warp per output channel; the activation tile is staged in shared memory once per block
 // and shared by all warps, so the activation is read from HBM once per block, not per warp.
 // Requires K % 16 == 0 and G % 16 == 0 so a lane's 16 weights never straddle a scale group.
+// Widest row count the GEMV serves. Mirrored by _ext.GEMV_MAXM, which decides routing; the kernel
+// itself is templated on the row width and never uses this.
 constexpr int GEMV_MAXM = 8;
 constexpr int GEMV_BK = 512;   // activation elements of K staged per iteration
 constexpr int GEMV_WARPS = 4;
@@ -151,24 +153,39 @@ __device__ __forceinline__ void load16(const void* base, int off, float out[16])
 // the memory pipeline idle and measured only ~100 GB/s of the card's ~600 GB/s.
 constexpr int GEMV_ROWS = 1;
 
-template <typename XT, int DT, typename OutT>
+// Row widths that get their own instantiation. MT is the height of the shared-memory tile and the
+// extent of the accumulator, so it decides how much of the inner loop exists at all: at MT=8 the
+// FMA block and the reduction are unrolled eight ways and seven of them are dead at M=1, yet they
+// still issue. Measured at M=1 (min of 31 rounds, two builds each, production's own noise floor
+// 1.00-1.02x): MT=1 1.16-1.24x, MT=4 1.07-1.16x, MT=8 1.00x. M=2 lands at 1.17x on MT=4, so the
+// ladder is (1, 4, 8) and serves M=1, M<=4 and M<=8. It must match _ext.GEMV_MT, which exports and
+// picks these; the GEMV_TAG expansion below is what instantiates them.
+//
+// A runtime branch to a narrow version was tried first and is much worse (0.45-0.60x): the two
+// copies do not inline into one straight-line path, so the kernel keeps a stack frame and twice
+// the code. __launch_bounds__(128, 7) is also no help (1.00x) -- it reaches MT=1's 72 registers
+// and 7 blocks/SM but not its instruction count, which is where the win actually is.
+//
+// Shipped A/B against the pre-change kernel (interleaved, min of 31 rounds, noise 1.00-1.02):
+// M=1 1.29-1.42x, M=2 1.19-1.33x, M=4 1.08-1.20x, M=8 0.99-1.01x.
+template <typename XT, int DT, int MT, typename OutT>
 __device__ void gemv_w8a16(const void* __restrict__ x, const u8* __restrict__ w,
                            const __half* __restrict__ lut, const float* __restrict__ ws,
                            const float* __restrict__ xs, const float* __restrict__ bias,
                            OutT* __restrict__ y, int M, int N, int K, int G, int has_bias,
                            int fmt) {
-    __shared__ XT sX[GEMV_MAXM][GEMV_BK];
+    __shared__ XT sX[MT][GEMV_BK];
     __shared__ __half sl[256];
     for (int i = threadIdx.x; i < 256; i += GEMV_WARPS * 32) sl[i] = lut[i];
 
     const int lane = threadIdx.x & 31;
     const int n0 = blockIdx.x * (GEMV_WARPS * GEMV_ROWS) + (threadIdx.x >> 5) * GEMV_ROWS;
 
-    float acc[GEMV_ROWS][GEMV_MAXM];
+    float acc[GEMV_ROWS][MT];
 #pragma unroll
     for (int r = 0; r < GEMV_ROWS; ++r)
 #pragma unroll
-        for (int m = 0; m < GEMV_MAXM; ++m) acc[r][m] = 0.f;
+        for (int m = 0; m < MT; ++m) acc[r][m] = 0.f;
 
     // Elements per 128-bit staging load: 8 for fp16/bf16, 4 for fp32. (This used to be clamped to
     // >= 8, so an fp32 activation only staged every other group of 4 and the GEMV read
@@ -180,9 +197,14 @@ __device__ void gemv_w8a16(const void* __restrict__ x, const u8* __restrict__ w,
         // Tail: K is only guaranteed to be a multiple of 16, not of GEMV_BK. Everything past
         // `rem` would read the next row (or run off the buffer) with 128-bit loads.
         const int rem = min(GEMV_BK, K - k0);
-        for (int i = threadIdx.x; i < GEMV_MAXM * PER; i += GEMV_WARPS * 32) {
+        // Stage only the rows this launch reads, capped at the instantiation's width. Staging a
+        // full tile unconditionally made M=1 write seven eighths of this loop as zeros at MT=8:
+        // 2048 versus 256 shared-memory stores per K-window, plus the same number of
+        // predicated-off global loads.
+        const int mr = min(M, MT);
+        for (int i = threadIdx.x; i < mr * PER; i += GEMV_WARPS * 32) {
             int m = i / PER, c = (i % PER) * VEC;
-            uint4 v = (m < M && c < rem)
+            uint4 v = c < rem
                           ? *reinterpret_cast<const uint4*>(reinterpret_cast<const XT*>(x) + (u64)m * K + k0 + c)
                           : make_uint4(0, 0, 0, 0);
             *reinterpret_cast<uint4*>(&sX[m][c]) = v;
@@ -214,7 +236,7 @@ __device__ void gemv_w8a16(const void* __restrict__ x, const u8* __restrict__ w,
             }
             const float s = ws[(u64)n * (K / G) + (k0 + j) / G];
 #pragma unroll
-            for (int m = 0; m < GEMV_MAXM; ++m) {
+            for (int m = 0; m < MT; ++m) {
                 if (m < M) {
                     float xv[16];
                     load16<DT>(sX[m], j, xv);
@@ -231,7 +253,7 @@ __device__ void gemv_w8a16(const void* __restrict__ x, const u8* __restrict__ w,
 #pragma unroll
     for (int r = 0; r < GEMV_ROWS; ++r)
 #pragma unroll
-        for (int m = 0; m < GEMV_MAXM; ++m)
+        for (int m = 0; m < MT; ++m)
 #pragma unroll
             for (int o = 16; o > 0; o >>= 1) acc[r][m] += __shfl_xor_sync(0xffffffff, acc[r][m], o);
 
@@ -393,11 +415,14 @@ __device__ void gemm_w8a16(const __half* __restrict__ x, const u8* __restrict__ 
              const float* bias, void* y, int M, int N, int K, int G, int has_bias, int fmt
 #define FWD (const __half*)x, w, lut, ws, xs, bias
 // GEMV: native activation dtype in, chosen output dtype out. xs is unused (FP32 accumulate).
-#define GEMV_ENTRY(IN_T, IN_DT, OUT_T, NAME)                                                  extern "C" __global__ void NAME(const IN_T* x, const u8* w, const __half* lut, const float* ws,                                 const float* xs, const float* bias, OUT_T* y,                                                  int M, int N, int K, int G, int has_bias, int fmt)                 { gemv_w8a16<IN_T, IN_DT>(x, w, lut, ws, xs, bias, y, M, N, K, G, has_bias, fmt); }
-#define GEMV_OUT(IN_T, IN_DT, TAG)     GEMV_ENTRY(IN_T, IN_DT, __half, tfp8_gemv_##TAG##_f16)     GEMV_ENTRY(IN_T, IN_DT, __nv_bfloat16, tfp8_gemv_##TAG##_bf16)     GEMV_ENTRY(IN_T, IN_DT, float, tfp8_gemv_##TAG##_f32)
-GEMV_OUT(__half, DT_F16, in_f16)
-GEMV_OUT(__nv_bfloat16, DT_BF16, in_bf16)
-GEMV_OUT(float, DT_F32, in_f32)
+// One exported kernel per row width, because MT is a compile-time property of the unrolled body;
+// see GEMV_MT. NAME carries the width as _m<MT> so the launcher can pick it from M.
+#define GEMV_ENTRY(IN_T, IN_DT, OUT_T, NAME, MT_)                                             extern "C" __global__ void NAME(const IN_T* x, const u8* w, const __half* lut, const float* ws,                                 const float* xs, const float* bias, OUT_T* y,                                                  int M, int N, int K, int G, int has_bias, int fmt)                 { gemv_w8a16<IN_T, IN_DT, MT_>(x, w, lut, ws, xs, bias, y, M, N, K, G, has_bias, fmt); }
+#define GEMV_OUT(IN_T, IN_DT, TAG, MT_)     GEMV_ENTRY(IN_T, IN_DT, __half, tfp8_gemv_##TAG##_m##MT_##_f16, MT_)     GEMV_ENTRY(IN_T, IN_DT, __nv_bfloat16, tfp8_gemv_##TAG##_m##MT_##_bf16, MT_)     GEMV_ENTRY(IN_T, IN_DT, float, tfp8_gemv_##TAG##_m##MT_##_f32, MT_)
+#define GEMV_TAG(IN_T, IN_DT, TAG)     GEMV_OUT(IN_T, IN_DT, TAG, 1)     GEMV_OUT(IN_T, IN_DT, TAG, 4)     GEMV_OUT(IN_T, IN_DT, TAG, 8)
+GEMV_TAG(__half, DT_F16, in_f16)
+GEMV_TAG(__nv_bfloat16, DT_BF16, in_bf16)
+GEMV_TAG(float, DT_F32, in_f32)
 
 // GEMM: FP16 activations (tensor cores) + per-row power-of-two scale xs in the epilogue.
 extern "C" __global__ void __launch_bounds__(128) tfp8_gemm_f16(ARGS)  { gemm_w8a16(FWD, (__half*)y, M, N, K, G, has_bias, fmt); }
