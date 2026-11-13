@@ -183,6 +183,7 @@ Turing 的 Tensor Core 只认 FP16，不认 FP8。所以无论怎么优化，最
 
 - [tfp8/README.md](tfp8/README.md)：各计算路径的延迟、decode 专项 A/B 测试、已修复的 bug
 - [tfp8/BENCH_TRANSCODE.md](tfp8/BENCH_TRANSCODE.md)：FP8 转译吞吐实测
+- [benchlab/README.md](benchlab/README.md)：基准测试页面（本机运行 + 任意显卡并排对比）
 - [docs/fp8_gemm_and_demos.md](docs/fp8_gemm_and_demos.md)：C++ 核心、超分 demo、训练实验
 
 ## 已知限制
