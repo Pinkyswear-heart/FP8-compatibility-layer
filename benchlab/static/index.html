@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>benchlab — FP8 转译基准对比</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>benchlab</h1>
+    <span class="sub">FP8 转译基准 · 按显卡归档 · 任意两张卡并排</span>
+    <span class="spacer"></span>
+    <span class="sub">记录目录 <code id="root-path">…</code></span>
+  </header>
+
+  <section class="card">
+    <h2>选卡对比</h2>
+    <p class="hint">每张卡保留一个固定颜色，选中或取消不会让其它卡换色。第一条选中的是基线，
+      下面表格里的「为…的 N×」都以它为准。</p>
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <section class="card">
+    <h2>指标</h2>
+    <p class="hint">每个指标一张图，各自独立的刻度——不同单位不共用一个 y 轴。条形长度是线性比例：
+      短一半就是慢一倍。</p>
+    <div class="legend" id="legend"></div>
+    <div class="charts" id="charts"></div>
+  </section>
+
+  <section class="card">
+    <h2>数值表</h2>
+    <p class="hint">图上标不下的数字都在这里，也是色弱或打印时的替代读法。</p>
+    <div id="table-host"></div>
+  </section>
+
+  <section class="card">
+    <h2>在本机跑一次</h2>
+    <p class="hint">调用 <code>tests/bench_transcode.py</code>，跑完自动存成一条记录。
+      全量约一分钟；只选「转译 + 显存 + 启动」约二十秒。</p>
+    <div class="row" id="sections">
+      <label class="check"><input type="checkbox" value="bw" checked>显存带宽</label>
+      <label class="check"><input type="checkbox" value="decode" checked>解码</label>
+      <label class="check"><input type="checkbox" value="encode" checked>编码</label>
+      <label class="check"><input type="checkbox" value="gemv" checked>GEMV</label>
+      <label class="check"><input type="checkbox" value="gemm" checked>GEMM</label>
+      <label class="check"><input type="checkbox" value="floor" checked>启动地板</label>
+    </div>
+    <div class="row">
+      <button class="ghost" id="btn-all" type="button">全选</button>
+      <button class="ghost" id="btn-fast" type="button">快速（跳过 GEMM）</button>
+      <input type="text" id="note" placeholder="备注（可选）：例如 满 boost / 显示占用低" style="max-width:340px">
+      <button class="primary" id="btn-run" type="button">开始测量</button>
+      <button id="btn-cancel" type="button" hidden>停止</button>
+    </div>
+    <div id="job" hidden>
+      <div class="row" style="margin-top:14px">
+        <span class="status" id="job-status"><span class="dot"></span>空闲</span>
+      </div>
+      <div class="err" id="job-error" hidden></div>
+      <pre class="log" id="job-log"></pre>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>导入别的显卡的记录</h2>
+    <p class="hint">在另一台机器上跑
+      <code>python -I tests/bench_transcode.py --json my_gpu.json</code>，把那个 JSON 拖进来或粘进来。
+      页面不需要那台机器在线，也不需要在同一张卡上。</p>
+    <div id="import-drop">
+      <textarea id="import-text" placeholder="把 transcode_gpu*.json 拖到这里，或粘贴内容"></textarea>
+    </div>
+    <div class="row">
+      <input type="text" id="import-note" placeholder="备注（可选）：例如 同型号但 300W 墙" style="max-width:340px">
+      <button id="btn-import" type="button">导入并对比</button>
+    </div>
+    <div class="err" id="import-error" hidden></div>
+  </section>
+
+  <details class="card">
+    <summary>这些数字在比什么</summary>
+    <p class="hint" style="margin-top:10px">
+      只有所有卡都能产出的指标才进对比图。GEMV 的绝对时间依赖层形状和 Windows 的提交地板，
+      跨卡排序基本等于排驱动版本，所以它只出现在每条记录的详情里，不参与排名。<br><br>
+      解码按 3 B/元素计有效带宽（读 1 B、写 2 B）；拷贝带宽按双程计。所有数值都是
+      interleaved/looped CUDA event 的中位数——这张卡是共享的，单次计时会摆动 2–4×。<br><br>
+      <strong>重要：</strong>本机实测的是同一张 2080 Ti 上不同时刻的状态，跨卡对比需要你在那台机器上
+      跑一遍再导入。没有别的显卡的真实数据时，这张页面比较的是「同一张卡在两个时间点」。
+    </p>
+  </details>
+
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

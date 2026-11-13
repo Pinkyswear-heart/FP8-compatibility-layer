@@ -28,3 +28,6 @@ Thumbs.db
 .vscode/
 .idea/
 dist/
+
+# benchlab: local measurement records and the import scratch
+benchlab/records/
